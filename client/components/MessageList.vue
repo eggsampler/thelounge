@@ -57,6 +57,25 @@
 	</div>
 </template>
 
+<style>
+/* Briefly flash a message when we jump to it (clicking a highlight/mention or a
+   search result), so it's easy to spot after the scroll. */
+.msg.focused {
+	animation: thelounge-focused-flash 2.5s ease-out 1;
+}
+
+@keyframes thelounge-focused-flash {
+	0%,
+	20% {
+		background-color: var(--highlight-bg-color);
+	}
+
+	100% {
+		background-color: transparent;
+	}
+}
+</style>
+
 <script lang="ts">
 import {condensedTypes} from "../../shared/irc";
 import {ChanType} from "../../shared/types/chan";
@@ -113,6 +132,14 @@ export default defineComponent({
 		const skipNextScrollEvent = ref(false);
 
 		const isWaitingForNextTick = ref(false);
+
+		// When jumping to a specific message (e.g. clicking a highlight/mention or a
+		// search result), we hold its id here until it is both loaded and scrolled to.
+		const pendingFocusId = ref<number | null>(null);
+		const focusLoadAttempts = ref(0);
+		// 150 chunks * 100 messages comfortably exceeds the default maxHistory (10000),
+		// so this is just a safety net against an unreachable target id.
+		const MAX_FOCUS_LOAD_ATTEMPTS = 150;
 
 		const jumpToBottom = () => {
 			skipNextScrollEvent.value = true;
@@ -326,6 +353,74 @@ export default defineComponent({
 			jumpToBottom();
 		};
 
+		// Scroll the pending focused message into view. If it isn't loaded yet, keep
+		// loading older history (it's always above the current bottom) until it shows
+		// up, then center it. Driven again by the messages / historyLoading watchers
+		// after each chunk arrives.
+		const tryScrollToFocused = async () => {
+			const id = pendingFocusId.value;
+
+			if (id === null) {
+				return;
+			}
+
+			await nextTick();
+
+			const el = chat.value;
+
+			if (!el) {
+				return;
+			}
+
+			const target = document.getElementById(`msg-${id}`);
+
+			if (target) {
+				skipNextScrollEvent.value = true;
+				// We're landing on an older message, so don't snap back to the bottom
+				props.channel.scrolledToBottom = false;
+				target.scrollIntoView({block: "center"});
+				pendingFocusId.value = null;
+				focusLoadAttempts.value = 0;
+				return;
+			}
+
+			if (
+				props.channel.moreHistoryAvailable &&
+				!props.channel.historyLoading &&
+				focusLoadAttempts.value < MAX_FOCUS_LOAD_ATTEMPTS
+			) {
+				focusLoadAttempts.value++;
+				onShowMoreClick();
+				return;
+			}
+
+			// Ran out of history (or hit the safety cap) without finding it.
+			if (
+				!props.channel.moreHistoryAvailable ||
+				focusLoadAttempts.value >= MAX_FOCUS_LOAD_ATTEMPTS
+			) {
+				pendingFocusId.value = null;
+				focusLoadAttempts.value = 0;
+			}
+		};
+
+		const initFocus = () => {
+			const id = props.focused;
+
+			focusLoadAttempts.value = 0;
+
+			// route.query.focused parses to NaN when absent; ids are always >= 1
+			if (id === undefined || Number.isNaN(id) || id <= 0) {
+				pendingFocusId.value = null;
+				return;
+			}
+
+			pendingFocusId.value = id;
+			// Avoid sticking to the bottom while we're trying to land on the target
+			props.channel.scrolledToBottom = false;
+			void tryScrollToFocused();
+		};
+
 		const onLinkPreviewToggle = async (preview: ClientLinkPreview, message: ClientMessage) => {
 			await keepScrollPosition();
 
@@ -392,6 +487,11 @@ export default defineComponent({
 			() => props.channel.messages,
 			async () => {
 				await keepScrollPosition();
+
+				// A history chunk may have just brought our target into view
+				if (pendingFocusId.value !== null) {
+					await tryScrollToFocused();
+				}
 			},
 			{
 				deep: true,
@@ -405,6 +505,23 @@ export default defineComponent({
 				await keepScrollPosition();
 			}
 		);
+
+		// Re-attempt the focus jump once each history load settles
+		watch(
+			() => props.channel.historyLoading,
+			(loading) => {
+				if (!loading && pendingFocusId.value !== null) {
+					void tryScrollToFocused();
+				}
+			}
+		);
+
+		// Kick off a focus jump on mount and whenever the focused id or channel changes.
+		// Registered after the channel.id watch above so it gets the final say on
+		// scrolledToBottom when a focused message is requested.
+		watch([() => props.focused, () => props.channel.id], () => initFocus(), {
+			immediate: true,
+		});
 
 		onBeforeUpdate(() => {
 			unreadMarkerShown = false;

@@ -6,6 +6,7 @@
 			{
 				self: message.self,
 				highlight: message.highlight || focused,
+				focused: focused,
 				'previous-source': isPreviousSource,
 			},
 		]"
