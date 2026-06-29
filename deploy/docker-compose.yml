@@ -12,8 +12,10 @@ services:
     image: ghcr.io/eggsampler/thelounge:latest
     container_name: thelounge
     restart: unless-stopped
-    # entrypoint is `node index.js`; these are its args
-    command: ["-c", "reverseProxy=true", "start"]
+    # entrypoint is `node index.js`; these are its args.
+    # host=0.0.0.0 forces listening on all interfaces inside the container so the
+    # published port works even if a restored config.js pins host to 127.0.0.1.
+    command: ["-c", "reverseProxy=true", "-c", "host=0.0.0.0", "start"]
     ports:
       - "127.0.0.1:9000:9000" # loopback only; reached by the host's cloudflared
     volumes:
