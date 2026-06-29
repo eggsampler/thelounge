@@ -1,0 +1,87 @@
+name: Build & publish Docker image
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - feature/clickable-highlights
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }} # eggsampler/thelounge
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # Build once and load locally so we can smoke-test before publishing
+      - name: Build image (load for smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: thelounge-ci:smoke
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (boots, serves HTTP, finds its config)
+        run: |
+          set -euo pipefail
+          docker run -d --name tl -p 9000:9000 thelounge-ci:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/ >/dev/null 2>&1; then
+              echo "The Lounge is serving HTTP."
+              ok=1; break
+            fi
+            sleep 1
+          done
+          docker logs tl
+          if [ "${ok:-0}" != "1" ]; then
+            echo "::error::The Lounge did not come up within 30s"
+            exit 1
+          fi
+          docker rm -f tl
+
+      # Re-run the build to publish (buildx cache makes this near-instant)
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

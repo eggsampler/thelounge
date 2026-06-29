@@ -1,6 +1,7 @@
 coverage/
 public/
 dist/
+deploy/
 test/fixtures/.thelounge/logs/
 test/fixtures/.thelounge/certificates/
 test/fixtures/.thelounge/storage/
@@ -18,6 +19,7 @@ yarn.lock
 .gitignore
 .npmrc
 .npmignore
+.dockerignore
 .prettierignore
 .thelounge_home
 .editorconfig

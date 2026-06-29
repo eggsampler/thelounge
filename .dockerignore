@@ -1,0 +1,22 @@
+# Keep the build context small and reproducible — these are recreated in-image
+node_modules
+**/node_modules
+# Anchored to context root so source dirs (e.g. client/public) are kept
+/dist
+/public
+/.thelounge
+
+# VCS / CI / editor cruft
+.git
+.github
+.vscode
+
+# Local deploy config (may contain secrets) and docs
+deploy
+
+# Misc
+*.log
+npm-debug.log*
+yarn-error.log
+coverage
+.DS_Store

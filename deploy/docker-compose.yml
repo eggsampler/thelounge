@@ -1,0 +1,23 @@
+# The Lounge (this fork), run from the image published by CI.
+#
+# Ingress is handled by a cloudflared tunnel running ON THE HOST, so this stack
+# exposes nothing publicly: the port is bound to loopback only, and the host's
+# cloudflared routes your hostname -> http://localhost:9000.
+#
+# reverseProxy=true tells The Lounge to trust the forwarded headers.
+# See ./README.md for setup and updates.
+
+services:
+  thelounge:
+    image: ghcr.io/eggsampler/thelounge:latest
+    container_name: thelounge
+    restart: unless-stopped
+    # entrypoint is `node index.js`; these are its args
+    command: ["-c", "reverseProxy=true", "start"]
+    ports:
+      - "127.0.0.1:9000:9000" # loopback only; reached by the host's cloudflared
+    volumes:
+      - thelounge-data:/var/opt/thelounge
+
+volumes:
+  thelounge-data:

@@ -21,7 +21,14 @@
 				<p v-else>You have no recent mentions.</p>
 			</template>
 			<template v-for="message in resolvedMessages" v-else :key="message.msgId">
-				<div :class="['msg', message.type]">
+				<div
+					:class="['msg', message.type]"
+					role="button"
+					tabindex="0"
+					title="Jump to this message"
+					@click="jumpToMention(message, $event)"
+					@keydown.enter="jumpToMention(message, $event)"
+				>
 					<div class="mentions-info">
 						<div>
 							<span class="from">
@@ -90,6 +97,11 @@
 .mentions-popup .msg {
 	margin-bottom: 15px;
 	user-select: text;
+	cursor: pointer;
+}
+
+.mentions-popup .msg:hover .content {
+	filter: brightness(1.1);
 }
 
 .mentions-popup .msg:last-child {
@@ -153,6 +165,7 @@ import localetime from "../js/helpers/localetime";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import {computed, watch, defineComponent, ref, onMounted, onUnmounted} from "vue";
+import {useRouter} from "vue-router";
 import {useStore} from "../js/store";
 import type {SharedMention} from "../../shared/types/mention";
 import type {NetChan} from "../js/types";
@@ -172,6 +185,7 @@ export default defineComponent({
 	},
 	setup() {
 		const store = useStore();
+		const router = useRouter();
 		const isOpen = ref(false);
 		const isLoading = ref(false);
 		const resolvedMessages = computed(() => {
@@ -195,6 +209,28 @@ export default defineComponent({
 
 		const messageTime = (time: string) => {
 			return dayjs(time).fromNow();
+		};
+
+		const jumpToMention = (message: MentionWithContext, event: Event) => {
+			// Let clicks on links, usernames and the dismiss button behave normally
+			const targetEl = event.target as HTMLElement;
+
+			if (targetEl.closest("a, button, .user")) {
+				return;
+			}
+
+			// Don't navigate away if the user was just selecting text to copy
+			if (window.getSelection()?.toString()) {
+				return;
+			}
+
+			isOpen.value = false;
+
+			void router.push({
+				name: "RoutedChat",
+				params: {id: message.chanId},
+				query: {focused: message.msgId},
+			});
 		};
 
 		const dismissMention = (message: MentionWithContext) => {
@@ -245,6 +281,7 @@ export default defineComponent({
 			isLoading,
 			resolvedMessages,
 			messageTime,
+			jumpToMention,
 			dismissMention,
 			dismissAllMentions,
 			containerClick,
