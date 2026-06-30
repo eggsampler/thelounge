@@ -1,5 +1,9 @@
 <template>
 	<div ref="chat" class="chat" tabindex="-1">
+		<div v-if="isJumping" class="jump-to-message-loading">
+			<span class="jump-to-message-spinner" />
+			Loading history…
+		</div>
 		<div v-show="channel.moreHistoryAvailable" class="show-more">
 			<button
 				ref="loadMoreButton"
@@ -74,6 +78,41 @@
 		background-color: transparent;
 	}
 }
+
+/* Loading indicator shown while a jump to a focused message has to fetch older
+   history (otherwise the view just sits there for a moment). */
+.chat .jump-to-message-loading {
+	position: sticky;
+	top: 8px;
+	z-index: 5;
+	width: fit-content;
+	margin: 8px auto 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 12px;
+	border-radius: 999px;
+	background-color: var(--window-bg-color);
+	box-shadow: 0 1px 5px rgba(0, 0, 0, 0.25);
+	font-size: 13px;
+	pointer-events: none;
+}
+
+.jump-to-message-spinner {
+	width: 13px;
+	height: 13px;
+	border: 2px solid currentColor;
+	border-top-color: transparent;
+	border-radius: 50%;
+	opacity: 0.6;
+	animation: thelounge-jump-spin 0.7s linear infinite;
+}
+
+@keyframes thelounge-jump-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
 </style>
 
 <script lang="ts">
@@ -99,6 +138,7 @@ import {
 	watch,
 } from "vue";
 import {useStore} from "../js/store";
+import {useRoute, useRouter} from "vue-router";
 import {ClientChan, ClientMessage, ClientNetwork, ClientLinkPreview} from "../js/types";
 
 type CondensedMessageContainer = {
@@ -125,6 +165,8 @@ export default defineComponent({
 	},
 	setup(props) {
 		const store = useStore();
+		const route = useRoute();
+		const router = useRouter();
 
 		const chat = ref<HTMLDivElement | null>(null);
 		const loadMoreButton = ref<HTMLButtonElement | null>(null);
@@ -140,6 +182,11 @@ export default defineComponent({
 		// 150 chunks * 100 messages comfortably exceeds the default maxHistory (10000),
 		// so this is just a safety net against an unreachable target id.
 		const MAX_FOCUS_LOAD_ATTEMPTS = 150;
+
+		// True only while a jump is actively loading history (not for instant jumps)
+		const isJumping = computed(
+			() => pendingFocusId.value !== null && focusLoadAttempts.value > 0
+		);
 
 		const jumpToBottom = () => {
 			skipNextScrollEvent.value = true;
@@ -523,6 +570,23 @@ export default defineComponent({
 			immediate: true,
 		});
 
+		// Once we're back at the live view (jumped to bottom via the button or by
+		// scrolling down), drop the now-stale ?focused= from the URL.
+		watch(
+			() => props.channel.scrolledToBottom,
+			(atBottom) => {
+				if (
+					atBottom &&
+					pendingFocusId.value === null &&
+					route.query.focused !== undefined
+				) {
+					const query = {...route.query};
+					delete query.focused;
+					void router.replace({query});
+				}
+			}
+		);
+
 		onBeforeUpdate(() => {
 			unreadMarkerShown = false;
 		});
@@ -551,6 +615,7 @@ export default defineComponent({
 			isPreviousSource,
 			jumpToBottom,
 			onLinkPreviewToggle,
+			isJumping,
 		};
 	},
 });
